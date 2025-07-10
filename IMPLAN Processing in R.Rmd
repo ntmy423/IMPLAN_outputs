@@ -1,0 +1,264 @@
+---
+title: "IMPLAN R Processing"
+author: "Yihan Zhang"
+date: "2025-06-20"
+output: html_document
+---
+
+# Setup and Load Data
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+options(scipen = 999)
+```
+
+```{r setup_library_themes, include=FALSE}
+
+library(kableExtra)
+library(dplyr)
+library(tidyverse)
+library(readxl)
+library(knitr)
+
+```
+
+```{r setting}
+
+# CHANGE BELOW
+
+working_dir = "your_working_directory" #set working director to the project IMPLAN Folder
+
+industry = "528"  # set IMPLAN NAICS industry classification (528 or 546)
+
+implan_output_file_name = "DEMO_20250623-IMPLAN-to-R Template-Detail Economic Indicators.csv"
+
+
+
+# sample working directory: it should always end with the "IMPLAN Processing in R" folder
+# working_dir = "C:/Users/yzhang/OneDrive - Econsult Solutions Inc/0 - General - ESI Knowledge Repository/Trainings and Guides/EIS Resources/IMPLAN Processing in R/IMPLAN Processing in R"
+
+```
+
+```{r read_implan_result}
+
+# NO CHANGE NEEDED
+
+# Set Working Directory
+setwd(working_dir)
+
+# load IMPLAN output file
+raw_output = read.csv(file.path("IMPLAN_result_export", implan_output_file_name)) %>% 
+  mutate(DestinationRegion = str_trim(DestinationRegion, side = "both"))
+
+```
+
+
+```{r set_geography}
+
+unique(raw_output$DestinationRegion)
+
+# CHANGE BELOW
+
+# geography for aggregation
+# `geography_list` and `geography` should always correspond to each other
+
+geography_list = c("Philadelphia", "Philadelphia 5-County", "PA")
+geography = list(c("Philadelphia County, PA (2023)"), 
+              c("Philadelphia County, PA (2023)", "PA - minus PHL MSA (2023)"),
+              c("Philadelphia County, PA (2023)" ,"PA - minus PHL MSA (2023)","Philadelphia MSA - PA - Minus PHL (2023)"))
+
+# define the geographies which you want to include in industry employment distribution tables
+industry_distribution_geography = c("PA - minus PHL MSA (2023)","Philadelphia County, PA (2023)" ,"Philadelphia MSA - PA - Minus PHL (2023)")
+```
+
+# DO NOT CHANGE BELOW
+
+
+```{r load_reference_files}
+
+# Set Working Directory
+setwd(working_dir)
+
+# load conversion files (IMPLAN industry bridges)
+if (industry == "528") 
+  { 
+  conversion = read_xlsx("reference_files/Emp_FTE_and_W&S_EC_528_Industries.xlsx", sheet = "2023") %>% 
+    select(Implan528Index, ECtoWSInc, FTEperTotalEmp) %>% 
+    rename(IndustryCode = Implan528Index)
+  industry_NAICS = read_xlsx("reference_files/Results Aggregator NAICS Schemes 528.xlsx", sheet = "IMPLAN to NAICS")
+
+  industry_NAICS = industry_NAICS %>% 
+    select(Implan528Index, `NAICS 2 Digit`) %>% 
+    rename(NAICS_2 = `NAICS 2 Digit`,
+         IndustryCode = Implan528Index)
+} else if (industry == "546")
+  {
+  conversion = read_xlsx("reference_files/Emp_FTE_and_W&S_EC_546_Industries.xlsx", sheet = "2022") %>% 
+    select(Implan546Index, ECtoWSInc, FTEperTotalEmp) %>% 
+    rename(IndustryCode = Implan546Index)
+  industry_NAICS = read_xlsx("reference_files/Results Aggregator NAICS Schemes 546.xlsx", sheet = "IMPLAN to NAICS")
+
+  industry_NAICS = industry_NAICS %>% 
+    select(Implan546Index, `NAICS 2 Digit`) %>% 
+    rename(NAICS_2 = `NAICS 2 Digit`,
+         IndustryCode = Implan546Index)
+} else {
+  print("invalid industry input")
+}
+  
+
+```
+
+```{r data_processing}
+
+# split event group
+output = left_join(raw_output, conversion, by = "IndustryCode") %>% 
+  mutate(TotalWage = EmployeeCompensation / ECtoWSInc,
+         FTE = Employment * FTEperTotalEmp,
+         ValueAdded = EmployeeCompensation + ProprietorIncome + TaxesOnProductionAndImports + OtherPropertyIncome) %>% 
+  mutate(EventGroup = str_trim(str_extract(EventName, "^[^\\-]+"), side = "both")) %>% 
+  left_join(industry_NAICS, by = "IndustryCode" )
+  
+```
+
+
+# Economic Impact Tables
+
+```{r impact_tables}
+
+
+# impact
+df_list = list()
+for (i in 1:length(geography_list)) {
+  df = output %>% 
+  filter(DestinationRegion %in% geography[[i]]) %>% 
+  group_by(EventGroup, ImpactType) %>% 
+  summarise(value = sum(Output)) %>% 
+    mutate(geography = geography_list[[i]])
+
+  df_list[[i]] = df
+}
+
+df_impact = bind_rows(df_list) %>% 
+  mutate(table = "Impact")
+
+
+# FTE
+df_list = list()
+for (i in 1:length(geography_list)) {
+  df = output %>% 
+  filter(DestinationRegion %in% geography[[i]]) %>% 
+  group_by(EventGroup, ImpactType) %>% 
+  summarise(value = sum(FTE)) %>% 
+    mutate(geography = geography_list[[i]])
+
+  df_list[[i]] = df
+}
+
+df_fte = bind_rows(df_list) %>% 
+  mutate(table = "FTE")
+
+
+
+# Employee Compensation
+df_list = list()
+for (i in 1:length(geography_list)) {
+  df = output %>% 
+  filter(DestinationRegion %in% geography[[i]]) %>% 
+  group_by(EventGroup, ImpactType) %>% 
+  summarise(value = sum(EmployeeCompensation)) %>% 
+    mutate(geography = geography_list[[i]])
+
+  df_list[[i]] = df
+}
+
+df_employee_compensation = bind_rows(df_list) %>% 
+  mutate(table = "Employee Compensation")
+
+# Total Wage
+df_list = list()
+for (i in 1:length(geography_list)) {
+  df = output %>% 
+  filter(DestinationRegion %in% geography[[i]]) %>% 
+  group_by(EventGroup, ImpactType) %>% 
+  summarise(value = sum(TotalWage)) %>% 
+    mutate(geography = geography_list[[i]])
+
+  df_list[[i]] = df
+}
+
+df_total_wage = bind_rows(df_list) %>% 
+  mutate(table = "Total Wage")
+
+# Value Added
+df_list = list()
+for (i in 1:length(geography_list)) {
+  df = output %>% 
+  filter(DestinationRegion %in% geography[[i]]) %>% 
+  group_by(EventGroup, ImpactType) %>% 
+   summarise(value = sum(ValueAdded)) %>% 
+    mutate(geography = geography_list[[i]])
+
+  df_list[[i]] = df
+}
+
+df_value_added = bind_rows(df_list) %>% 
+  mutate(table = "Value Added")
+
+# output tables
+output_economic_impact = rbind(df_impact,
+                               df_employee_compensation,
+                               df_fte,
+                               df_total_wage,
+                               df_value_added)
+
+```
+
+# Employment Industry Distribution
+
+
+```{r industry_distribution_tables}
+
+# state-wide employment (for the largest geography in the analysis)
+
+df_list = list()
+
+for (event_group in unique(output$EventGroup)) {
+  
+  df_all = output %>% 
+    filter(EventGroup == event_group,
+           DestinationRegion %in% industry_distribution_geography) %>% 
+    group_by(NAICS_2) %>% 
+    summarise(FTE = sum(FTE, na.rm = TRUE)) %>% 
+    mutate(EventGroup = event_group,
+           table = "All Impacts")
+  
+  df_indirect_induced = output %>% 
+    filter(EventGroup == event_group,
+           ImpactType %in% c("Indirect", "Induced"),
+           DestinationRegion %in% industry_distribution_geography) %>% 
+    group_by(NAICS_2) %>% 
+    summarise(FTE = sum(FTE, na.rm = TRUE)) %>% 
+    mutate(EventGroup = event_group,
+           table = "Indirect & Induced Impacts")
+  
+  df_list = append(df_list, list(df_all))
+  df_list = append(df_list, list(df_indirect_induced))
+}
+
+output_industry_distribution = bind_rows(df_list)
+
+
+```
+
+# Export
+
+```{r}
+
+setwd(working_dir)
+
+write.csv(output_economic_impact, "output_files/economic_impact_tables.csv", na = "", row.names = FALSE)
+write.csv(output_industry_distribution, "output_files/industry_employment_distribution.csv", na = "", row.names = FALSE)
+
+```
+
