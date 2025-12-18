@@ -1,73 +1,84 @@
-### Sample IMPLAN EIS Impacts Processing - March 2025 ###
+### Innovation Space EIS  - December 2025 ###
 
 rm(list = ls()) ## clear environments
 
-## UPDATE: Set working directory ##
-setwd("C:/Users/egoldstein/OneDrive - Econsult Solutions Inc/Documents/2 Rscript Repository/IMPLAN")
 
 # SET UP  -------------------------------------------------------
 options(scipen = 999)  # no scientific notation
 
 # Load Libraries
 {
+library(here) ## must have any other rscripts closed before loading!
 library(tidyverse)
+library(readxl)
 library(openxlsx)
 }
 
 # Load Reference Data
 
-raw_output <- read.csv("output.csv")
+raw_output <- read.csv(here("output-DE.csv")) ## DELAWARE IMPACTS
+
+# raw_output <- read.csv(here("output-MSA.csv")) ## PHILA MSA IMPACTS
 
 ## Reference Files --> must have copies stored in working directory location; load just one!
 
 ## IMPLAN 528 (2023- )
 {
-conversion <- read_xlsx("Emp_FTE_and_W&S_EC_528_Industries.xlsx", sheet = "2023") %>% 
-  select(Implan528Index, ECtoWSInc, FTEperTotalEmp) %>% 
-  rename(IndustryCode = Implan528Index)
+  conversion <- read_xlsx(
+    here("Emp_FTE_and_W&S_EC_528_Industries.xlsx"), sheet = "2023") %>%
+    select(Implan528Index, ECtoWSInc, FTEperTotalEmp) %>%
+    rename(IndustryCode = Implan528Index)
 
-industry_NAICS <- read_xlsx("Results Aggregator NAICS Schemes 528.xlsx", sheet = "IMPLAN to NAICS") %>%
-  select(Implan528Index, `NAICS 2 Digit`) %>%
-  rename(NAICS_2 = `NAICS 2 Digit`, IndustryCode = Implan528Index)
+  industry_NAICS <- read_xlsx( 
+    here("Results Aggregator NAICS Schemes 528.xlsx"), sheet = "IMPLAN to NAICS") %>%
+    select(Implan528Index, `NAICS 2 Digit`) %>%
+    rename(NAICS_2 = `NAICS 2 Digit`, IndustryCode = Implan528Index)
 }
 
-## IMPLAN 546 (2018-2022 data) 
-{
-# conversion <- read_xlsx("Emp_FTE_and_W&S_EC_546_Industries.xlsx", sheet = "2022") %>% 
-#   select(Implan546Index, ECtoWSInc, FTEperTotalEmp) %>% 
-#   rename(IndustryCode = Implan546Index)
-# 
-# industry_NAICS <- read_xlsx("Results Aggregator NAICS Schemes 546.xlsx", sheet = "IMPLAN to NAICS") %>%
-#   select(Implan546Index, `NAICS 2 Digit`) %>%
-#   rename(NAICS_2 = `NAICS 2 Digit`, IndustryCode = Implan546Index)
-}
+
 
 
 # UPDATE: DEFINITIONS -----------------------------------------------------
 
 # UPDATE: Define geography column header titles; should match report names for each geography
-geography_list <- c("Philadelphia", "Pennsylvania") 
+geography_list <- c("New Castle County", "Delaware", "United States")
 
-unique(raw_output$DestinationRegion) # replace below with output from console
-# [1] "PA minus Philadelphia County (2023)" "Philadelphia County, PA (2023)" 
+# geography_list <- c("New Castle County", "MSA", "United States") 
 
-## UPDATE: Match exactly to DestinationRegion 
-direct_geography <- "Philadelphia County, PA (2023)"
-indirect_geography1 <- "PA minus Philadelphia County (2023)"
-# indirect_geography2 <- ""
+
+unique(raw_output$DestinationRegion) ## Delaware
+# [1] "Delaware minus New Castle Co (2024)" "New Castle County, DE (2024)"       
+# [3] "US minus DE (2024)"       
+
+## UPDATE: Match exactly to DestinationRegion ## Delaware
+direct_geography <- "New Castle County, DE (2024)"
+indirect_geography1 <- "Delaware minus New Castle Co (2024)"
+indirect_geography2 <- "US minus DE (2024)"
+
+
+
+# unique(raw_output$DestinationRegion) ## MSA
+# [1] "New Castle County, DE (2024)"    "Phila-Cam-Wilm MSA minus New Castle Co DE (2024)"
+# [3] "US minus Phila-Cam-Wilm MSA (2024)"    
+
+## UPDATE: Match exactly to DestinationRegion ## MSA
+# direct_geography <- "New Castle County, DE (2024)"
+# indirect_geography1 <- "Phila-Cam-Wilm MSA minus New Castle Co DE (2024)"
+# indirect_geography2 <- "US minus Phila-Cam-Wilm MSA (2024)"
+
 
 geography <- list(
   c(direct_geography), 
-  c(direct_geography, indirect_geography1) #,
-  # c(direct_geography, indirect_geography1, indirect_geography2)
+  c(direct_geography, indirect_geography1) ,
+  c(direct_geography, indirect_geography1, indirect_geography2)
 )
 
 ## event grouping 
 unique((raw_output %>% mutate(EventName = sub("-.*", "", EventName)))$EventName) # replace below with output from console
-# [1] "CapExMulti "      "CapExSingle "     "OpsManufacturing" "OpsWarehousing"  
+#  "CapEx " "Ops "   
 
 # UPDATE: Define the EventGroups and corresponding captions from above; copy and paste exactly
-event_groups <- trimws(c("CapExMulti ", "CapExSingle ", "OpsManufacturing", "OpsWarehousing"
+event_groups <- trimws(c("CapEx ", "Ops "
                          ))
 
 # Functions ----------------------------------------------------
@@ -221,7 +232,10 @@ output <- left_join(output, industry_NAICS, by = "IndustryCode")
 output_tables <- create_output_tables(output, geography, geography_list)
 
 
-export_to_excel(output_tables, "Processed/1 IMPLAN_Economic_Impacts_Output.xlsx")
+export_to_excel(output_tables,here("Processed","1 IMPLAN_Economic_Impacts_Output_DE.xlsx"))
+
+# export_to_excel(output_tables,here("Processed","1 IMPLAN_Economic_Impacts_Output_MSA.xlsx"))
+
 
 
 # Industry Employment - Sub-Geography -----------------------------------
@@ -233,8 +247,18 @@ for (event_group in event_groups) {
   process_subgeog_industry_employment(event_group)
 }
 
-saveWorkbook(wb_direct, "Processed/SubGeography_Industry_Employment_Summary.xlsx", overwrite = TRUE)
+saveWorkbook(
+  wb_direct,
+  here("Processed", "SubGeography_Industry_Employment_Summary_DE.xlsx"),
+  overwrite = TRUE
+)
 
+
+# saveWorkbook(
+#   wb_direct,
+#   here("Processed", "SubGeography_Industry_Employment_Summary_MSA.xlsx"),
+#   overwrite = TRUE
+# )
 
 
 # Industry Employment - Largest Geography ---------------------------------------------------
@@ -245,8 +269,18 @@ for (event_group in event_groups) {
   process_industry_employment(event_group)
 }
 
-saveWorkbook(wb_indirect, "Processed/Industry_Employment_Summary.xlsx", overwrite = TRUE)
+saveWorkbook(
+  wb_direct,
+  here("Processed", "Industry_Employment_Summary_DE.xlsx"),
+  overwrite = TRUE
+)
 
+
+# saveWorkbook(
+#   wb_direct,
+#   here("Processed", "Industry_Employment_Summary_MSA.xlsx"),
+#   overwrite = TRUE
+# )
 
 
 
